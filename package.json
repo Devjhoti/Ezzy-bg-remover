@@ -1,0 +1,20 @@
+{
+  "name": "background-remover",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Fast, private, in-browser background remover that outputs high-quality transparent PNGs.",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "vendor": "node scripts/vendor-models.mjs",
+    "test": "node scripts/test.mjs"
+  },
+  "dependencies": {
+    "@imgly/background-removal": "1.7.0",
+    "onnxruntime-web": "1.21.0"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^24.0.0"
+  }
+}

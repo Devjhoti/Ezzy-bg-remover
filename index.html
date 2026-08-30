@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Background Remover — transparent PNGs, entirely in your browser</title>
+<meta name="description" content="Remove image backgrounds locally in the browser and export high-quality transparent PNGs. No uploads, no API keys.">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230b0d12'/><circle cx='16' cy='16' r='7.5' fill='none' stroke='%2367e8f9' stroke-width='3' stroke-dasharray='4 3'/></svg>">
+<!--
+  The removal library dynamically imports "onnxruntime-web"; this map lets the
+  browser resolve those bare specifiers without a bundler.
+-->
+<script type="importmap">
+{
+  "imports": {
+    "onnxruntime-web": "/node_modules/onnxruntime-web/dist/ort.bundle.min.mjs",
+    "onnxruntime-web/webgpu": "/node_modules/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs",
+    "@imgly/background-removal": "/node_modules/@imgly/background-removal/dist/index.mjs"
+  }
+}
+</script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+      <circle cx="16" cy="16" r="10" fill="none" stroke="currentColor" stroke-width="3" stroke-dasharray="5 4" stroke-linecap="round"/>
+    </svg>
+    <div>
+      <h1>Background Remover</h1>
+      <p class="tagline">Runs entirely on your device — images never leave your browser.</p>
+    </div>
+  </div>
+  <div class="engine" id="engine-status" title="Inference backend">
+    <span class="dot" id="engine-dot"></span><span id="engine-label">Starting…</span>
+  </div>
+</header>
+
+<main class="layout">
+
+  <!-- ─── Left column: queue ─────────────────────────────────────────── -->
+  <section class="panel queue-panel">
+    <div class="panel-head">
+      <h2>Images</h2>
+      <button class="btn btn-quiet" id="clear-all" hidden>Clear</button>
+    </div>
+
+    <div class="dropzone" id="dropzone" tabindex="0" role="button"
+         aria-label="Add images: click, drop files, or paste">
+      <svg viewBox="0 0 24 24" class="dz-icon" aria-hidden="true">
+        <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M3.5 15v3A2.5 2.5 0 0 0 6 20.5h12a2.5 2.5 0 0 0 2.5-2.5v-3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+      </svg>
+      <strong>Drop images here</strong>
+      <span>or click to browse · paste with <kbd>Ctrl</kbd>+<kbd>V</kbd></span>
+      <input type="file" id="file-input" accept="image/*" multiple hidden>
+    </div>
+
+    <ul class="queue" id="queue"></ul>
+  </section>
+
+  <!-- ─── Center: viewer ─────────────────────────────────────────────── -->
+  <section class="panel viewer-panel">
+
+    <div class="toolbar" role="tablist" id="tool-tabs">
+      <button class="tool is-active" data-tool="cutout" role="tab">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5l10 10m4 4l-2-2M19 5L9 15m-4 4l2-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="7" cy="17.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="17" cy="17.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        Cutout
+      </button>
+      <button class="tool" data-tool="background" role="tab">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 15l4.5-4 4 3.5 3.5-3 5 4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="9" cy="9.5" r="1.5" fill="currentColor"/></svg>
+        Background
+      </button>
+      <button class="tool" data-tool="objects" role="tab">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="11" height="11" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="9.5" y="9.5" width="11" height="11" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        Objects
+      </button>
+      <button class="tool" data-tool="effects" role="tab">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/></svg>
+        Effects
+      </button>
+      <button class="tool" data-tool="adjust" role="tab">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="9" cy="7" r="2" fill="currentColor"/><circle cx="15" cy="12" r="2" fill="currentColor"/><circle cx="8" cy="17" r="2" fill="currentColor"/></svg>
+        Adjust
+      </button>
+      <button class="tool" data-tool="design" role="tab">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 7V5.5h12V7M12 5.5v13M9 18.5h6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Design
+      </button>
+    </div>
+
+    <div class="viewer-head">
+      <div class="segmented" role="tablist" id="view-tabs">
+        <button class="seg is-active" data-view="result" role="tab">Result</button>
+        <button class="seg" data-view="compare" role="tab">Compare</button>
+        <button class="seg" data-view="original" role="tab">Original</button>
+      </div>
+
+      <div class="viewer-tools">
+        <span class="viewer-meta" id="viewer-meta"></span>
+        <div class="zoomer">
+          <button class="icon-btn" id="zoom-out" title="Zoom out">−</button>
+          <button class="icon-btn zoom-label" id="zoom-reset" title="Fit to window">Fit</button>
+          <button class="icon-btn" id="zoom-in" title="Zoom in">+</button>
+        </div>
+        <button class="icon-btn" id="undo" title="Undo (Ctrl+Z)" disabled>↶</button>
+        <button class="icon-btn" id="redo" title="Redo (Ctrl+Shift+Z)" disabled>↷</button>
+      </div>
+    </div>
+
+    <div class="stage" id="stage">
+      <div class="stage-empty" id="stage-empty">
+        <p>Add an image to get started.</p>
+      </div>
+
+      <div class="canvas-wrap" id="canvas-wrap" hidden>
+        <div class="checker" id="checker">
+          <canvas id="canvas-result"></canvas>
+          <div class="compare-handle" id="compare-handle" hidden>
+            <span class="ch-line"></span><span class="ch-grip">↔</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="stage-busy" id="stage-busy" hidden>
+        <div class="spinner"></div>
+        <p id="busy-label">Working…</p>
+        <div class="progress"><div class="progress-bar" id="progress-bar"></div></div>
+        <p class="hint" id="busy-hint"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Right column: the active tool's options ────────────────────── -->
+  <aside class="panel controls-panel">
+
+    <!-- Cutout ....................................................... -->
+    <div class="tool-panel is-active" data-panel="cutout">
+      <div class="panel-head"><h2>Brush</h2>
+        <button class="btn btn-quiet" id="clear-strokes">Clear edits</button>
+      </div>
+      <div class="ctrl-group">
+        <p class="ctrl-help">Fix anything the model got wrong — paint directly on the image.</p>
+        <div class="brush-modes" id="brush-modes">
+          <button class="brush-btn" data-brush="off">Off</button>
+          <button class="brush-btn" data-brush="erase">− Erase</button>
+          <button class="brush-btn" data-brush="restore">+ Restore</button>
+          <button class="brush-btn wide-btn" data-brush="wand">✦ Magic select (1 tap)</button>
+        </div>
+        <label class="ctrl" id="brush-size-ctrl">
+          <span class="ctrl-label">Brush size <em id="v-brushSize">60 px</em></span>
+          <input type="range" id="brushSize" min="6" max="300" step="2" value="60">
+        </label>
+
+        <div class="wand-opts" id="wand-opts" hidden>
+          <p class="ctrl-help">Tap any area to select everything of a similar colour.</p>
+          <label class="ctrl">
+            <span class="ctrl-label">Tolerance <em id="v-wandTolerance">22</em></span>
+            <input type="range" id="wandTolerance" min="1" max="100" step="1" value="22">
+            <span class="ctrl-help">How different a pixel may be and still be included.</span>
+          </label>
+          <div class="brush-modes two">
+            <button class="brush-btn" id="wand-remove">Tap removes</button>
+            <button class="brush-btn" id="wand-keep">Tap keeps</button>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="wandContiguous" checked>
+            <span>Connected areas only</span>
+            <span class="ctrl-help">Off: matches that colour everywhere in the image.</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="panel-head"><h2>Edge</h2>
+        <button class="btn btn-quiet" id="reset-refine">Reset</button>
+      </div>
+      <div class="ctrl-group">
+        <label class="ctrl">
+          <span class="ctrl-label">Feather <em id="v-feather">1.00 px</em></span>
+          <input type="range" id="feather" min="0" max="6" step="0.25" value="1">
+          <span class="ctrl-help">Softens the cutout edge to kill jaggies.</span>
+        </label>
+        <label class="ctrl">
+          <span class="ctrl-label">Edge shift <em id="v-shift">−0.50 px</em></span>
+          <input type="range" id="shift" min="-4" max="4" step="0.25" value="-0.5">
+          <span class="ctrl-help">Negative shrinks the matte inward, hiding background fringe.</span>
+        </label>
+        <label class="ctrl">
+          <span class="ctrl-label">Matte contrast <em id="v-contrast">1.2×</em></span>
+          <input type="range" id="contrast" min="1" max="4" step="0.1" value="1.2">
+        </label>
+        <label class="switch">
+          <input type="checkbox" id="despill" checked>
+          <span>Edge colour decontamination</span>
+          <span class="ctrl-help">Removes background colour bled into semi-transparent hair and edges.</span>
+        </label>
+        <label class="switch">
+          <input type="checkbox" id="trim">
+          <span>Trim to subject</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Background ................................................... -->
+    <div class="tool-panel" data-panel="background">
+      <div class="panel-head"><h2>Background</h2></div>
+      <div class="ctrl-group">
+        <div class="bg-modes" id="bg-modes">
+          <button class="mode-btn is-active" data-bg="transparent">Transparent</button>
+          <button class="mode-btn" data-bg="color">Colour</button>
+          <button class="mode-btn" data-bg="blur">Blur original</button>
+        </div>
+
+        <div class="bg-section" data-bg-section="color">
+          <span class="ctrl-label">Colour</span>
+          <div class="swatches" id="swatches"></div>
+          <label class="ctrl">
+            <span class="ctrl-label">Custom <em id="v-bgColor">#ffffff</em></span>
+            <input type="color" id="bgColor" value="#ffffff" class="wide">
+          </label>
+        </div>
+
+        <div class="bg-section" data-bg-section="blur" hidden>
+          <label class="ctrl">
+            <span class="ctrl-label">Blur amount <em id="v-bgBlur">18 px</em></span>
+            <input type="range" id="bgBlur" min="2" max="80" step="1" value="18">
+            <span class="ctrl-help">Keeps the original scene behind the subject, defocused.</span>
+          </label>
+        </div>
+
+        <div class="bg-section" data-bg-section="photo">
+          <button class="btn" id="pick-bg">Add a photo behind…</button>
+          <input type="file" id="bg-input" accept="image/*" hidden>
+          <p class="ctrl-help" id="bg-name">Drops in as a movable layer you can position and resize.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Objects ...................................................... -->
+    <div class="tool-panel" data-panel="objects">
+      <div class="panel-head"><h2>Objects</h2>
+        <button class="btn btn-quiet" id="add-layer-image">+ Image</button>
+      </div>
+      <div class="ctrl-group">
+        <ul class="layer-list" id="object-layers"></ul>
+
+        <div id="object-editor" hidden>
+          <div class="row btn-row">
+            <button class="btn" id="dup-layer">Duplicate</button>
+            <button class="btn" id="del-layer">Delete</button>
+          </div>
+          <div class="row btn-row">
+            <button class="btn" id="layer-up">Forward</button>
+            <button class="btn" id="layer-down">Backward</button>
+          </div>
+          <label class="ctrl">
+            <span class="ctrl-label">Size <em id="v-layer-scale">100%</em></span>
+            <input type="range" id="layer-scale" min="5" max="400" step="1" value="100">
+          </label>
+          <label class="ctrl">
+            <span class="ctrl-label">Rotation <em id="v-layer-rot">0°</em></span>
+            <input type="range" id="layer-rot" min="-180" max="180" step="1" value="0">
+          </label>
+          <label class="ctrl">
+            <span class="ctrl-label">Opacity <em id="v-layer-opacity">100%</em></span>
+            <input type="range" id="layer-opacity" min="0" max="100" step="1" value="100">
+          </label>
+          <button class="btn" id="reset-transform">Reset position &amp; size</button>
+        </div>
+
+        <div class="shortcuts">
+          <p><strong>Drag</strong> to move · <strong>handles</strong> to resize</p>
+          <p><kbd>Alt</kbd>+drag duplicates · <kbd>Del</kbd> removes</p>
+          <p><kbd>Ctrl</kbd>+wheel zooms · <kbd>Space</kbd>+drag pans</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Effects ...................................................... -->
+    <div class="tool-panel" data-panel="effects">
+      <div class="panel-head"><h2>Drop shadow</h2>
+        <button class="btn btn-quiet" id="reset-shadow">Reset</button>
+      </div>
+      <div class="ctrl-group">
+        <label class="switch">
+          <input type="checkbox" id="shadow">
+          <span>Add shadow</span>
+        </label>
+        <label class="ctrl">
+          <span class="ctrl-label">Opacity <em id="v-shadowOpacity">45%</em></span>
+          <input type="range" id="shadowOpacity" min="0" max="100" step="1" value="45">
+        </label>
+        <label class="ctrl">
+          <span class="ctrl-label">Blur <em id="v-shadowBlur">30 px</em></span>
+          <input type="range" id="shadowBlur" min="0" max="120" step="1" value="30">
+        </label>
+        <label class="ctrl">
+          <span class="ctrl-label">Offset X <em id="v-shadowX">0 px</em></span>
+          <input type="range" id="shadowX" min="-120" max="120" step="1" value="0">
+        </label>
+        <label class="ctrl">
+          <span class="ctrl-label">Offset Y <em id="v-shadowY">22 px</em></span>
+          <input type="range" id="shadowY" min="-120" max="120" step="1" value="22">
+        </label>
+        <label class="ctrl">
+          <span class="ctrl-label">Colour</span>
+          <input type="color" id="shadowColor" value="#000000" class="wide">
+        </label>
+      </div>
+    </div>
+
+    <!-- Adjust ....................................................... -->
+    <div class="tool-panel" data-panel="adjust">
+      <div class="panel-head"><h2>Colour &amp; light</h2>
+        <button class="btn btn-quiet" id="reset-adjust">Reset</button>
+      </div>
+      <div class="ctrl-group">
+        <label class="ctrl">
+          <span class="ctrl-label">Brightness <em id="v-brightness">100%</em></span>
+          <input type="range" id="brightness" min="20" max="200" step="1" value="100">
+        </label>
+        <label class="ctrl">
+          <span class="ctrl-label">Contrast <em id="v-contrastAdj">100%</em></span>
+          <input type="range" id="contrastAdj" min="20" max="200" step="1" value="100">
+        </label>
+        <label class="ctrl">
+          <span class="ctrl-label">Saturation <em id="v-saturation">100%</em></span>
+          <input type="range" id="saturation" min="0" max="200" step="1" value="100">
+        </label>
+      </div>
+
+      <div class="panel-head"><h2>Crop &amp; place</h2></div>
+      <div class="ctrl-group">
+        <label class="ctrl">
+          <span class="ctrl-label">Aspect ratio</span>
+          <select id="aspect">
+            <option value="original" selected>Original</option>
+            <option value="1:1">Square 1:1</option>
+            <option value="4:5">Portrait 4:5</option>
+            <option value="2:3">Portrait 2:3</option>
+            <option value="3:2">Landscape 3:2</option>
+            <option value="16:9">Wide 16:9</option>
+            <option value="9:16">Story 9:16</option>
+          </select>
+          <span class="ctrl-help">Pads the frame out to the ratio — never crops the subject.</span>
+        </label>
+        <label class="ctrl">
+          <span class="ctrl-label">Padding <em id="v-padding">0%</em></span>
+          <input type="range" id="padding" min="0" max="50" step="1" value="0">
+        </label>
+      </div>
+    </div>
+
+    <!-- Design ....................................................... -->
+    <div class="tool-panel" data-panel="design">
+      <div class="panel-head"><h2>Text</h2>
+        <button class="btn btn-quiet" id="add-text">+ Add</button>
+      </div>
+      <div class="ctrl-group">
+        <ul class="layer-list" id="text-layers"></ul>
+        <div id="text-editor" hidden>
+          <label class="ctrl">
+            <span class="ctrl-label">Content</span>
+            <input type="text" id="text-content" placeholder="Your text" class="text-input">
+          </label>
+          <label class="ctrl">
+            <span class="ctrl-label">Size <em id="v-text-size">8%</em></span>
+            <input type="range" id="text-size" min="2" max="40" step="0.5" value="8">
+          </label>
+          <div class="row">
+            <label class="ctrl grow">
+              <span class="ctrl-label">Font</span>
+              <select id="text-font">
+                <option value="system-ui, sans-serif">Sans</option>
+                <option value="Georgia, serif">Serif</option>
+                <option value="ui-monospace, monospace">Mono</option>
+                <option value="Impact, system-ui, sans-serif">Impact</option>
+              </select>
+            </label>
+            <label class="ctrl">
+              <span class="ctrl-label">Weight</span>
+              <select id="text-weight">
+                <option value="400">Regular</option>
+                <option value="700" selected>Bold</option>
+                <option value="900">Black</option>
+              </select>
+            </label>
+          </div>
+          <div class="row">
+            <label class="ctrl">
+              <span class="ctrl-label">Colour</span>
+              <input type="color" id="text-color" value="#ffffff">
+            </label>
+            <label class="ctrl grow">
+              <span class="ctrl-label">Outline</span>
+              <input type="color" id="text-outline-color" value="#000000">
+            </label>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="text-outline" checked>
+            <span>Outline</span>
+          </label>
+          <p class="ctrl-help">Drag the text on the canvas to position it.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Shared export block .......................................... -->
+    <div class="export-block">
+      <div class="panel-head"><h2>Export</h2></div>
+      <div class="ctrl-group">
+        <label class="ctrl">
+          <span class="ctrl-label">Format</span>
+          <select id="format">
+            <option value="image/png" selected>PNG — lossless, transparent</option>
+            <option value="image/webp">WebP — smaller, transparent</option>
+            <option value="image/jpeg">JPEG — no transparency</option>
+          </select>
+        </label>
+        <label class="ctrl">
+          <span class="ctrl-label">Model <em id="v-model"></em></span>
+          <select id="model">
+            <option value="isnet_fp16" selected>Balanced — 80 MB</option>
+            <option value="isnet">Highest quality — 176 MB</option>
+            <option value="isnet_quint8">Fastest — 44 MB</option>
+          </select>
+        </label>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" id="download" disabled>Download</button>
+        <button class="btn" id="download-all" disabled>Download all (.zip)</button>
+      </div>
+      <p class="footnote" id="size-note"></p>
+    </div>
+  </aside>
+</main>
+
+<div class="drag-overlay" id="drag-overlay" hidden><div>Drop to add images</div></div>
+<div class="toast" id="toast" hidden></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+node_modules/
+models/
+screenshot.png
+*.tmp.mjs
