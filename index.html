@@ -9,14 +9,15 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230b0d12'/><circle cx='16' cy='16' r='7.5' fill='none' stroke='%2367e8f9' stroke-width='3' stroke-dasharray='4 3'/></svg>">
 <!--
   The removal library dynamically imports "onnxruntime-web"; this map lets the
-  browser resolve those bare specifiers without a bundler.
+  browser resolve those bare specifiers without a bundler. The targets are
+  copied out of node_modules by `npm run build`, so they ship with the site.
 -->
 <script type="importmap">
 {
   "imports": {
-    "onnxruntime-web": "/node_modules/onnxruntime-web/dist/ort.bundle.min.mjs",
-    "onnxruntime-web/webgpu": "/node_modules/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs",
-    "@imgly/background-removal": "/node_modules/@imgly/background-removal/dist/index.mjs"
+    "onnxruntime-web": "/vendor/onnxruntime-web/ort.js",
+    "onnxruntime-web/webgpu": "/vendor/onnxruntime-web/ort.webgpu.js",
+    "@imgly/background-removal": "/vendor/imgly/background-removal.js"
   }
 }
 </script>

@@ -9,7 +9,7 @@
  * Needs puppeteer-core plus a local Chrome or Edge, and downloads the model on
  * the first run.
  */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,6 +35,11 @@ function findBrowser() {
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function startServer() {
+  // The import map points at ./vendor, which is generated rather than committed.
+  const build = spawnSync(process.execPath,
+    [path.join(ROOT, 'scripts', 'build.mjs'), '--vendor-only'], { stdio: 'ignore' });
+  if (build.status !== 0) throw new Error('Build failed; run `npm install` first.');
+
   const proc = spawn(process.execPath, [path.join(ROOT, 'server.js')], {
     env: { ...process.env, PORT: String(PORT) },
     stdio: 'ignore'

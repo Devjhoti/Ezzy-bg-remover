@@ -68,7 +68,7 @@ const server = http.createServer((req, res) => {
     }
     const ext = path.extname(filePath).toLowerCase();
     // Vendored model/runtime files are content-addressed, app files are not.
-    const immutable = pathname.startsWith('/node_modules/') || pathname.startsWith('/models/');
+    const immutable = pathname.startsWith('/vendor/') || pathname.startsWith('/models/');
     res.writeHead(200, {
       'Content-Type': MIME[ext] || 'application/octet-stream',
       'Content-Length': stat.size,
